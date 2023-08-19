@@ -1,4 +1,4 @@
- Brainfuck
+# Brainfuck
 
 ## About
 
@@ -211,6 +211,8 @@ end
 ```
 {:module, Brainfuck.Program, <<70, 79, 82, 49, 0, 0, 24, ...>>, {:snip_loop, 3}}
 ```
+
+Let's give the infinite loop guard a try:
 
 ```elixir
 "+[[>+]]" |> Brainfuck.Program.run()
