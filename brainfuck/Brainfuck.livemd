@@ -1,4 +1,4 @@
-# Brainfuck
+ Brainfuck
 
 ## About
 
@@ -105,7 +105,7 @@ defmodule Brainfuck.Program do
     end
   end
 
-  # If there are no more inxtructions, then return the program
+  # If there are no more instructions, then return the program
   def run(%{code: <<>>} = pgm), do: {:ok, pgm}
 
   def run({:error, _, _} = result), do: result
