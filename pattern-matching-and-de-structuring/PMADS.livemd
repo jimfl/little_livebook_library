@@ -144,7 +144,7 @@ defmodule HTTPUtil do
   end
 
   def get_content_from_response(%Response{status_code: 404}, _) do
-    nil
+    @default_content
   end
 
   def get_content_from_response(%Response{status_code: 500, request_url: url}, retries_left) do
@@ -223,7 +223,7 @@ Another representation of the tape is as two stacks, one stack representing the 
 
 The functions in this module perform a single modification on the tape, and return a modified tape, de-structuring the inputs, then re-structuring them on output.
 
-In the service of being pathological in the use of P-MAD-S, the `increment` and `decrement` functions, rather than use `Kernel.rem` to do arithmetic, use pattern-matching on the values 255 and 0 respectively.
+In the service of being pathological in the use of P-MAD-S, the `increment` and `decrement` functions, rather than use `Kernel.rem` to do arithmetic modulo 256, use pattern-matching on the values 255 and 0 respectively.
 
 ```elixir
 defmodule Brainfuck.Tape do
