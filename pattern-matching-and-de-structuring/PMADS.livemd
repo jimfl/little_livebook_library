@@ -1,0 +1,511 @@
+# Dont Get Mad. Get P-MAD-S.
+
+```elixir
+Mix.install([
+  # One of the examples makes some HTTP requests
+  {:httpoison, "~> 2.1"}
+])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+:ok
+```
+
+## Elixir Pattern-matching and De-Structuring Assignments
+
+One of the features of Elixir I find most powerful is the combination of pattern-matching and de-structuring assignments, especially within function parameters.
+
+If you're not familiar with these concepts, let's review them. Pattern-matching and de-structuring assignments are very often used together in Elixir. Here are a couple of examples:
+
+```elixir
+# Split a list into the first and rest elements
+[first | rest] = [1, 2, 3, 4, 5]
+IO.inspect(first)
+IO.inspect(rest)
+
+# Here's a toy function that returns a status/value tuple
+my_fun = fn x, y -> {:ok, x + y} end
+
+# evaluate my_fun and extract the value from the response
+{:ok, value} = my_fun.(3, 4)
+IO.inspect(value)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+1
+[2, 3, 4, 5]
+7
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+7
+```
+
+In the first example, we essentially assign a list to a pattern that we expect the list to look like, and any variable names on the left-hand side get assigned the appropriate values. Remember that the way to place an element at the head of a list is
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+new_list = [1 | old_list]
+```
+
+so this is just the un-doing of that.
+
+The second example is a common pattern in Elixir where functions return a tuple of status and value like `{:ok, 7}`, or `{:error, "You done goofed, son."}`. The pattern-matching in the second example involves an explicit value, `:ok` as the first element of the tuple, and de-structures the second element into the `value` variable.
+
+Elixir allows you to use this mechanism in function parameter specs, and is a very common way to extract both information about the state, as well as specific values, so you don't have to extract them in the body of the function. Here's something you'll see all the time as a way of iterating over lists.
+
+```elixir
+defmodule Example.One do
+  def sum_list(list, sum \\ 0)
+
+  def sum_list([], sum), do: sum
+
+  def sum_list([first | rest], sum) do
+    sum_list(rest, sum + first)
+  end
+end
+
+Example.One.sum_list([1, 3, 5, 7, 11])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+27
+```
+
+The `Example.One` module contains three definitions of the same function. Really there are only two. The first is the **function head**, which is optional, but allows us to specify that the second parameter is optional, and is zero by default.
+
+The second definition is the pathological case, were we pass in an empty list, in which case, it just returns the sum. This is also the base case for recursion.
+
+The third definition is where all the work happens. `first` is assigned the head element in the list, and `rest` the tail. These are used to create the parameters for the recursive call.
+
+Programs in other languages generally take a different approach, that might look something like this. (I had to look up the `if` macro in Elixir). What follows is very non idiomatic Elixir. This also might be a bad idea in your language of choice if it dosn't support tail-call optimization.
+
+```elixir
+defmodule Example.One.Traditional do
+  def sum_list(list, sum \\ 0) do
+    if Enum.count(list) < 1 do
+      sum
+    else
+      first = List.first(list)
+      rest = List.delete_at(list, 0)
+      sum_list(rest, sum + first)
+    end
+  end
+end
+
+Example.One.Traditional.sum_list([1, 3, 5, 7, 11])
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+27
+```
+
+In the first example, both the `if` clause and the assignments to first and rest are handled by the language itself. The dispatcher decides which version of the function to evaluate based on pattern-matching, and the de-structuring performs the assignments. The body of the function merely re-structures the arguments for the recursive call.
+
+In terms of readability and maintainability, these two examples aren't that different. In fact the traditional version might be simpler to follow for many readers who haven't adjusted to the pattern-matching and de-structuring approach. However, in more involved coding situations, the power of pattern-matching and de-structuring (Since I'm getting tired of typing that, I'll refer to it as **P-MAD-S** from here on) becomes apparent.
+
+If you have ever tried to write code that merely fetches some information from an HTTP server, you know that all the little corner cases, retries, redirects, etc. can make for a convoluted looping, conditional hairball. Here's how you might do it in Elixir (pretending, for those who are aware, that the `HTTPoison` module doesn't do some of these things for you, and pretending that there's only one HTTP code each for success, not-found, re-direct, and server-failure).
+
+To preserve my own sanity, I am *not* going to provide a non-P-MAD-S implementation of a traditional HTTP request loop that does retry and re-direction.
+
+```elixir
+defmodule HTTPUtil do
+  require HTTPoison
+
+  alias HTTPoison.Response
+
+  @default_content "__BUPKES__"
+
+  def get_content_from_url(url, retries_left \\ 3)
+
+  def get_content_from_url(_url, 0 = _retries_left), do: @default_content
+
+  def get_content_from_url(url, retries_left) when is_binary(url) do
+    with {:ok, response} <- HTTPoison.get(url) do
+      get_content_from_response(response, retries_left)
+    else
+      {:error, _} -> @default_content
+    end
+  end
+
+  def get_content_from_response(%Response{status_code: 200, body: content}, _) do
+    content
+  end
+
+  def get_content_from_response(%Response{status_code: 404}, _) do
+    nil
+  end
+
+  def get_content_from_response(%Response{status_code: 500, request_url: url}, retries_left) do
+    Process.sleep((4 - retries_left) * 1000)
+    get_content_from_url(url, retries_left - 1)
+  end
+
+  def get_content_from_response(%Response{status_code: 302} = response, _) do
+    get_content_from_url(get_location_header(response))
+  end
+
+  def get_location_header(%Response{headers: headers}) do
+    get_location_header(headers)
+  end
+
+  def get_location_header([{"location", location} | _]) do
+    location
+  end
+
+  def get_location_header([_ | rest]) do
+    get_location_header(rest)
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, HTTPUtil, <<70, 79, 82, 49, 0, 0, 12, ...>>, {:get_location_header, 1}}
+```
+
+In this example, `get_content_from_response()` does P-MAD-S on Elixir structs (the `HTTPoison.Response` struct). The first two definitions of `get_location_header()` do it on both the `Response` struct as well as lists of key-value pairs, respectively. This second use actually de-structures the list as well as the tuple at the head-entry.
+
+It is important to note that the last two definitions of `get_location_header()` need to be in the order they're in, because Elixir dispatches the function by applying the pattern-match in order of definition, so the second definition would match on the `Location:` header and skip right over it.
+
+The retry policy is encoded in the combination of the `retries_left` parameter in `get_content_*` and the `sleep` in the function definition that matches on status code 500.
+
+If you wanted to support more than one HTTP status code per function definition, you could use a guard in combination with the P-MAD-S, like so:
+
+<!-- livebook:{"force_markdown":true} -->
+
+```elixir
+def get_content_from_response(%Response{status_code: code, request_url: url}, retries_left)
+    when code >= 500 do
+  Process.sleep((4 - retries_left) * 1000)
+  get_content_from_url(url, retries_left - 1)
+end
+```
+
+Lets' smoke test `HTTPUtil` on a URL that will do a redirect:
+
+```elixir
+HTTPUtil.get_content_from_url("https://flip.it/VIDXwy")
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+"<!DOCTYPE html>\n<html lang=\"en-US\"   xmlns:og=\"http://ogp.me/ns#\" xmlns:fb=\"http://www.facebook.com/2008/fbml\">\n<head>\n\t<meta charset=\"UTF-8\" />\n\t<meta name=\"HandheldFriendly\" content=\"True\">\n\t<meta name=\"MobileOptimized\" content=\"320\">\n\t<meta name=\"viewport\" content=\"initial-scale=1.0, width=device-width, minimum-scale=1.0, user-scalable=1\" />\n\t<link rel=\"profile\" href=\"http://gmpg.org/xfn/11\" />\n\t<link rel=\"pingback\" href=\"https://robbreport.com/xmlrpc.php\" />\n\t<meta property=\"fb:app_id\" content=\"445395315547478\" />\n\t\n<!--\n\t\t _     _ _           ____          _          _____ _    ___\n\t\t| |   (_) | _____   / ___|___   __| | ___    | ____| |__|__ \\\n\t\t| |   | | |/ / _ \\ | |   / _ \\ / _` |/ _ \\   |  _| | '_ \\ / /\n\t\t| |___| |   <  __/ | |__| (_) | (_| |  __/_  | |___| | | |_|\n\t\t|_____|_|_|\\_\\___|  \\____\\___/ \\__,_|\\___( ) |_____|_| |_(_)\n\t\t\t\t\t\t\t\t\t\t\t\t  |/\n\n\t\t Work on Robb Report and other iconic brands!\n\n\t\t Visit our careers page at https://pmc.com/careers/\n\n-->\n\n<meta name=\"description\" content=\"Made with Cynar, Toki Japanese whisky and a pineapple-infused rum, this original cocktail is a tropical variation on the Manhattan with a bitter note.\" />\n<title>Bitter Tears Recipe: How to Make the Rum-Filled Manhattan Variation &#8211; Robb Report</title>\n\t\t<script type=\"text/javascript\">\n\t\t\twindow.dataLayer = window.dataLayer || [];\n\t\t\tfunction gtag(){dataLayer.push(arguments);}\n\n\t\t\twindow.pmc_google_consent_mode = {\n\t\t\t\tinit: function(opts = {}) {\n\t\t\t\t\t/** @type string[] */\n\t\t\t\t\tconst consentGroups = window.pmc_onetrust_helpers?.getActiveConsentGroups?.() || [];\n\n\t\t\t\t\t/**\n\t\t\t\t\t * C0001 = Strictly Necessary Cookies (Security, Auth, Basic Functionality)\n\t\t\t\t\t * C0002 = Performance Cookies (Analytics)\n\t\t\t\t\t * C0003 = Functional Cookies (Personalization)\n\t\t\t\t\t * C0004 = Targeting Cookies (Advertising)\n\t\t\t\t\t */\n\t\t\t\t\tconst configuration = {\n\t\t\t\t\t\t'ad_storage': consentGroups.includes('C0004') ? 'granted' : 'denied',\n\t\t\t\t\t\t'analytics_storage': consentGroups.includes('C0002') ? 'granted' : 'denied',\n\t\t\t\t\t\t'functionality_storage': consentGroups.includes('C0003') ? 'granted' : 'denied',\n\t\t\t\t\t\t'personalization_storage': consentGroups.includes('C0003') ? 'granted' : 'denied',\n\t\t\t\t\t\t'security_storage': consentGroups.includes('C0001') ? 'granted' : 'denied',\n\t\t\t\t\t}\n\n\t\t\t\t\tif (opts.isUpdate === true && consentGroups.length === 0) {\n\t\t\t\t\t\tconfiguration['wait_for_update'] = 1500;\n\t\t\t\t\t}\n\n\t\t\t\t\tgtag('consent', opts.isUpdate ? 'update' : 'default', configuration);\n\t\t\t\t},\n\t\t\t\tupdate: function() {\n\t\t\t\t\tthis.init({ isUpdate: true });\n\t\t\t\t},\n\t\t\t}\n\t\t\twindow.pmc_google_consent_mode.init();\n\t\t</script>\n\t\t<script type=\"text/javascript\">\n/* <![CDATA[ */\nvar pmc_meta = {\"lob\":\"robbreport\",\"lob_genre\":\"Lifestyle\",\"page-type\":\"article\",\"env\":\"desktop\",\"primary-category\":\"Food & Drink\",\"primary-vertical\":\"\",\"vertical\":\"\",\"category\":[\"Food &amp; Drink\",\"Spirits\"],\"tag\":[\"Cocktail Recipe\",\"Cocktails\",\"Japanese whisky\",\"Rum\"],\"author\":[\"Jason O'Bryan\"],\"logged-in\":\"\",\"subscriber-type\":\"\",\"country\":\"us\",\"is_eu\":false,\"post-options\":\"\"};\n\n/* ]]> */\n</script>\n\t\t<script type=\"text/plain\" class=\"optanon-category-C0002\">\n\t\t\t(function(d,w){\n\t\t\t\tvar i, parts, name, c, rdecode = /(%[0-9A-Z]{2})+/g, rspace = /\\+/g, ac = (d ? d.split('; ') : []);\n\t\t\t\tfor(w.pmc_cookies = {}, i = 0; i < ac.length; i++) {\n\t\t\t\t\tparts = ac[i].split('='), name = parts[0].replace(rdecode, decodeURIComponent), c = parts.slice(1).join('=');\n\t\t\t\t\tif(c.charAt(0) === '\"') { c = c.slice(1, -1); } c = c.replace(rdecode, decodeURIComponent).replace(rspace, ' '); w['pmc_cookies'][name] = c;\n\t\t\t\t}\n\t\t\t})(document.cookie, window);\n\n\t\t\tpmc_meta=pmc_meta || {}, pmc_meta.omni_visit_id = window.pmc_cookies.omni_visit_id || \"robbreport.\" + new Date().getTime() + '.' + (function(l,b,a,c,i,d){for(i=0;i<256;i++){l[i]=(i<16?'0':'')+(i).toString(16);}if(c&&c.getRandomValues){try{d=new Uint32Array(4),c.getRandomValues(d);}catch(e){d=0;}}d=d||[b()*a>>>0,b()*a>>>0,b()*a>>>0,b()*a>>>0];a=d[0],b=d[1],c=d[2],d=d[3];return l[a&0xff]+l[a>>8&0xff]+l[a>>16&0xff]+l[a>>24&0xff]+'-'+l[b&0xff]+l[b>>8&0xff]+'-'+l[b>>16&0x0f|0x40]+l[b>>" <> ...
+```
+
+## Brainfuck
+
+Brainfuck is an estoteric programming language, or esolang, designed to emulate a Turing machine. The language has only 8 instructions, which operate on data in the form of a "tape" of cells which contain an 8 bit quantity (which can represent a number 0-255 or an ASCII character). One cell is considered to be under a "read/write head" (also called the data pointer, or current cell) at any given time.
+
+The instructions are `<`, `>`, which shift the tape under the read/write head one cell to the left or right, `+`, `-`, which increment or decrement the value under the head, `.`, `,`, which read or write the current cell, and `[`, `]` which are delimiters that provide for simple loops.
+The code inside the brackets will be executed if the current cell contains a non-zero value, otherwise, it will be skipped.
+
+Below is a simple, working implementation of a brainfuck interpreter that showcases the power and concision of P-MAD-S
+
+## The Tape
+
+Brainfuck progams operate on an array of cells that extends in both directions, conceptually, forever. This is called the "tape." Some brainfuck implementations just use an in-memory array to represent the tape, with the obvious limitation that you have to decide in advance how big a tape you think you need, and where to place the head on the tape so that it doesn't run off one side or the other.
+
+Another representation of the tape is as two stacks, one stack representing the left side of the tape, and the other stack representing the current cell and the right side of the tape. This way, the tape can grow as needed, and no pre-allocation is required.
+
+The functions in this module perform a single modification on the tape, and return a modified tape, de-structuring the inputs, then re-structuring them on output.
+
+In the service of being pathological in the use of P-MAD-S, the `increment` and `decrement` functions, rather than use `Kernel.rem` to do arithmetic, use pattern-matching on the values 255 and 0 respectively.
+
+```elixir
+defmodule Brainfuck.Tape do
+  defstruct left: [0], right: [0, 0]
+
+  def move_right(%{right: [head | []]} = tape) do
+    move_right(%{tape | right: [head | [0]]})
+  end
+
+  def move_right(%{left: left, right: [head | right]} = tape) do
+    %{tape | left: [head | left], right: right}
+  end
+
+  def move_left(%{left: [head | []]} = tape) do
+    move_left(%{tape | left: [head | [0]]})
+  end
+
+  def move_left(%{left: [head | left], right: right} = tape) do
+    %{tape | left: left, right: [head | right]}
+  end
+
+  def increment(%{right: [255 | right]} = tape) do
+    %{tape | right: [0 | right]}
+  end
+
+  def increment(%{right: [head | right]} = tape) do
+    %{tape | right: [1 + head | right]}
+  end
+
+  def decrement(%{right: [0 | right]} = tape) do
+    %{tape | right: [255 | right]}
+  end
+
+  def decrement(%{right: [head | right]} = tape) do
+    %{tape | right: [head - 1 | right]}
+  end
+
+  def put(%{right: [_head | right]} = tape, value)
+      when value >= 0 and value < 256 do
+    %{tape | right: [value | right]}
+  end
+
+  def get(%{right: [head | _]}), do: head
+
+  def zero?(%{right: [0 | _]}), do: true
+  def zero?(_), do: false
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Brainfuck.Tape, <<70, 79, 82, 49, 0, 0, 16, ...>>, {:zero?, 1}}
+```
+
+## The Program
+
+A brainfuck program is just a sequence of the characters `<>+-[].,`. It is intended that occurrences of `[`, and `]` be balanced, but since one potential use of this interpreter is to run on randomly-generated programs, any unmatched occurrence of `[` is assumed to be closed by the end of the program. Any unmatched occurrence of `]` is ignored.
+
+However, if programs are cut apart and re-mixed (as in genetic programming), latent loops have the potential to become actual loops and vice-versa, through introduction or elision of delimiters.
+
+This implementation also has protection against infinite loops. If an individual loop iterates more than a specified amount, the program terminates with an error.
+
+If an `input:` list is supplied with the program, then the `,` instruction will take these bytes as input (otherwise, `,` sets the current cell to 0). Similarly, output is prepended to the `output:` field (and will need to be reversed when the program terminates).
+
+The functions defined in the `Brainfuck.Program` module perform P-MAD-S on bitstring representations of the program, essentially de-structuring a single character at a time using the pattern `<<first::utf8, rest::binary>>` explicitly matching on the individual operators in the program, then recursing on the rest of the program.
+
+Implementing looping on `[...]` is mildly more complex than the other operations, mainly because this implementation is designed to be resilient in the face of programs that might get stuck in a loop (or a nested set of loops) forever, so it is necessary to keep track of each loop's entry count in a stack. This implementation is also a little more complicated after the addition of error propagation between `loop()` and `run()`.
+
+```elixir
+defmodule Brainfuck.Program do
+  defstruct code: "",
+            tape: %Brainfuck.Tape{},
+            input: [],
+            output: [],
+            loop_counter: [],
+            loop_limit: 10000
+
+  alias Brainfuck.Tape
+
+  @movl ?<
+  @movr ?>
+  @incr ?+
+  @decr ?-
+  @read ?.
+  @wrt ?,
+  @loop ?[
+  @pool ?]
+
+  def run(code) when is_binary(code) do
+    with {:ok, %{output: output}} <- %Brainfuck.Program{code: code} |> run do
+      Enum.reverse(output)
+    else
+      {:error, reason, pgm} -> {:error, reason, pgm}
+    end
+  end
+
+  # If there are no more instructions, then return the program
+  def run(%{code: <<>>} = pgm), do: {:ok, pgm}
+
+  def run({:error, _, _} = result), do: result
+
+  def run(%{code: <<@movl, rest::binary>>, tape: tape} = pgm) do
+    run(%{pgm | code: rest, tape: tape |> Tape.move_left()})
+  end
+
+  def run(%{code: <<@movr, rest::binary>>, tape: tape} = pgm) do
+    run(%{pgm | code: rest, tape: tape |> Tape.move_right()})
+  end
+
+  def run(%{code: <<@incr, rest::binary>>, tape: tape} = pgm) do
+    run(%{pgm | code: rest, tape: tape |> Tape.increment()})
+  end
+
+  def run(%{code: <<@decr, rest::binary>>, tape: tape} = pgm) do
+    run(%{pgm | code: rest, tape: tape |> Tape.decrement()})
+  end
+
+  def run(%{code: <<@read, rest::binary>>, tape: tape, output: output} = pgm) do
+    run(%{pgm | code: rest, output: [Tape.get(tape) | output]})
+  end
+
+  def run(%{code: <<@wrt, rest::binary>>, tape: tape, input: []} = pgm) do
+    run(%{pgm | code: rest, tape: tape |> Tape.put(0)})
+  end
+
+  def run(%{code: <<@wrt, rest::binary>>, tape: tape, input: [next | rest_in]} = pgm) do
+    run(%{pgm | code: rest, tape: tape |> Tape.put(next), input: rest_in})
+  end
+
+  # Upon encountering a `[` instruction, split the code into the
+  # code inside the loop, and everything after the matching `]`, then 
+  # call loop() on the first part, and run() on the second part
+  def run(%{code: <<@loop, rest::binary>>, loop_counter: ctr_stack} = pgm) do
+    {loop_code, after_loop_code} = snip_loop(rest)
+
+    with {:ok, pgm} <- loop(%{pgm | code: loop_code, loop_counter: [0 | ctr_stack]}) do
+      run(%{pgm | code: after_loop_code})
+    else
+      {:error, reason, pgm} -> {:error, reason, pgm}
+    end
+  end
+
+  # Ignore non-program tokens. This allows for whitespace and comments
+  def run(%{code: <<_::8, rest::binary>>} = pgm) do
+    run(%{pgm | code: rest})
+  end
+
+  # return an error if the loop iteration count exceeds the limit
+  # The loop counter is a stack, with the counter at the top being for the 
+  # current loop
+  def loop(%{loop_counter: [ctr | _], loop_limit: lim} = pgm) when ctr > lim do
+    {:error, "exceeded loop limit", pgm}
+  end
+
+  # just return if the current cell is zero
+  def loop(%{tape: %{right: [0 | _]}, loop_counter: [_ | outer]} = pgm) do
+    {:ok, %{pgm | loop_counter: outer}}
+  end
+
+  def loop(%{code: code, loop_counter: [ctr | outer]} = pgm) do
+    with {:ok, pgm} <- run(%{pgm | loop_counter: [1 + ctr | outer]}) do
+      loop(%{pgm | code: code})
+    else
+      {:error, reason, pgm} -> {:error, reason, pgm}
+    end
+  end
+
+  @doc """
+  snip_loop(), given the a sequence starting with the character after an opening
+  leep delimiter, will return a tuple with the outer loop, and the code after 
+  the loop. 
+
+  For example, given `"+++>>>[--->>>>]+>+>+>].>.>.>"`, this function will
+  return `{"++>>>[--->>>>]+>+>+>", ".>.>.>"}`
+  """
+  def snip_loop(string), do: snip_loop(string, "", 0)
+
+  def snip_loop(<<@pool, rest::binary>>, inside, 0) do
+    {inside, rest}
+  end
+
+  def snip_loop(<<>>, inside, _level), do: {inside, ""}
+
+  def snip_loop(<<@pool, rest::binary>>, inside, level) do
+    snip_loop(rest, inside <> <<@pool>>, level - 1)
+  end
+
+  def snip_loop(<<@loop, rest::binary>>, inside, level) do
+    snip_loop(rest, inside <> <<@loop>>, 1 + level)
+  end
+
+  def snip_loop(<<first::8, rest::binary>>, inside, level) do
+    snip_loop(rest, inside <> <<first>>, level)
+  end
+end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Brainfuck.Program, <<70, 79, 82, 49, 0, 0, 24, ...>>, {:snip_loop, 3}}
+```
+
+Since it was responsible for some minor complexity, let's give the infinite loop protection a try:
+
+```elixir
+"+[<+>]" |> Brainfuck.Program.run()
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:error, "exceeded loop limit",
+ %Brainfuck.Program{
+   code: "<+>",
+   tape: %Brainfuck.Tape{left: [17, 0], right: [1, 0]},
+   input: [],
+   output: [],
+   loop_counter: [10001],
+   loop_limit: 10000
+ }}
+```
+
+Here is the brainfuck implementation of the `echo` command:
+
+```elixir
+{:ok, %{output: [0 | out]}} =
+  %Brainfuck.Program{code: "+[,.]", input: 'Better than bupkes!'} |> Brainfuck.Program.run()
+
+Enum.reverse(out)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+'Better than bupkes!'
+```
+
+And finally, an annotated version of Hello World, lifted verbatim from the Wikipedia page on brainfuck.
+
+```elixir
+"""
+++++++++               Set Cell #0 to 8
+[
+    >++++               Add 4 to Cell #1; this will always set Cell #1 to 4
+    [                   as the cell will be cleared by the loop
+        >++             Add 2 to Cell #2
+        >+++            Add 3 to Cell #3
+        >+++            Add 3 to Cell #4
+        >+              Add 1 to Cell #5
+        <<<<-           Decrement the loop counter in Cell #1
+    ]                   Loop until Cell #1 is zero; number of iterations is 4
+    >+                  Add 1 to Cell #2
+    >+                  Add 1 to Cell #3
+    >-                  Subtract 1 from Cell #4
+    >>+                 Add 1 to Cell #6
+    [<]                 Move back to the first zero cell you find; this will
+                        be Cell #1 which was cleared by the previous loop
+    <-                  Decrement the loop Counter in Cell #0
+]                       Loop until Cell #0 is zero; number of iterations is 8
+
+The result of this is:
+Cell no :   0   1   2   3   4   5   6
+Contents:   0   0  72 104  88  32   8
+Pointer :   ^
+
+>>.                     Cell #2 has value 72 which is 'H'
+>---.                   Subtract 3 from Cell #3 to get 101 which is 'e'
++++++++..+++.           Likewise for 'llo' from Cell #3
+>>.                     Cell #5 is 32 for the space
+<-.                     Subtract 1 from Cell #4 for 87 to give a 'W'
+<.                      Cell #3 was set to 'o' from the end of 'Hello'
++++.------.--------.    Cell #3 for 'rl' and 'd'
+>>+.                    Add 1 to Cell #5 gives us an exclamation point
+>++.                    And finally a newline from Cell #6
+"""
+|> Brainfuck.Program.run()
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+'Hello World!\n'
+```
