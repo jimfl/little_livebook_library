@@ -94,6 +94,12 @@ defmodule BrainfuckGP.Tape do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, BrainfuckGP.Tape, <<70, 79, 82, 49, 0, 0, 16, ...>>, {:zero?, 1}}
+```
+
 ## The Program
 
 A brainfuck program is just a sequence of the 8 instructions `<>+-[].,`. In standard brainfuck, occurrences of `[`, and `]` need be balanced in order to form a correct program. But since the intended use of this interpreter is to run on randomly-generated and re-mixed programs, this rule must be abandoned. In this interpreter, any unmatched occurrence of `[` is assumed to be closed by the end of the program. Any unmatched occurrence of `]` is simply ignored.
@@ -233,10 +239,30 @@ defmodule BrainfuckGP.Program do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, BrainfuckGP.Program, <<70, 79, 82, 49, 0, 0, 24, ...>>, {:snip_loop, 3}}
+```
+
 Let's give the infinite loop guard a try:
 
 ```elixir
 "+[<+>]" |> BrainfuckGP.Program.run()
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:error, "exceeded loop limit",
+ %BrainfuckGP.Program{
+   code: "<+>",
+   tape: %BrainfuckGP.Tape{left: [17, 0], right: [1, 0]},
+   input: [],
+   output: [],
+   loop_counter: [10001],
+   loop_limit: 10000
+ }}
 ```
 
 And a simple `echo` command:
@@ -246,6 +272,12 @@ And a simple `echo` command:
   %BrainfuckGP.Program{code: "+[,.]", input: 'Hello World!'} |> BrainfuckGP.Program.run()
 
 Enum.reverse(out)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+'Hello World!'
 ```
 
 ## Hello World
@@ -289,6 +321,12 @@ Pointer :   ^
 >++.                    And finally a newline from Cell #6
 """
 |> BrainfuckGP.Program.run()
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+'Hello World!\n'
 ```
 
 Some additional utilities are needed to support genetic programming. First, it will be necessary to create populations of randomly generated programs. Next, before actually executing the programs, it might help to remove runs of extraneous instructions that cancel each other out, such as `<>`, `><`, `+-`, and `-+`. Note that to preserve the magic of crossover, it is desirable to keep the extraneous "junk DNA" in the string, so we will only yank it immediately before executing the program. `BrainfuckGP.Util.normalize_program()` repeatedly goes over the string until no changes are made.
@@ -343,6 +381,12 @@ defmodule BrainfuckGP.Util do
     normalize_program(rest, <<acc::binary, first::utf8>>, modified?)
   end
 end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, BrainfuckGP.Util, <<70, 79, 82, 49, 0, 0, 14, ...>>, {:nonormalize_programrm, 3}}
 ```
 
 ## Implementing the Genetic Programming Tools
@@ -407,6 +451,12 @@ defmodule BrainfuckGP.PopulationStatistics do
     end
   end
 end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, BrainfuckGP.PopulationStatistics, <<70, 79, 82, 49, 0, 0, 16, ...>>, {:find_median, 1}}
 ```
 
 An individual of a population is some brainfuck code, paired with a fitness value, which is determined by executing the program, then comparing the output with the target using a fitness function supplied by the user.
@@ -491,12 +541,30 @@ defmodule BrainfuckGP.Individual do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, BrainfuckGP.Individual, <<70, 79, 82, 49, 0, 0, 20, ...>>, {:flip, 1}}
+```
+
 Lets give mutation a try with a fairly high rate (1 in 10 chance):
 
 ```elixir
 BrainfuckGP.Individual.random()
 |> IO.inspect()
 |> BrainfuckGP.Individual.mutate(0.1)
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%BrainfuckGP.Individual{code: ",->.--<+<<+-.<-.", fitness: 0.0}
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+%BrainfuckGP.Individual{code: ",+>.--<+<<+-.<-.", fitness: 0.0}
 ```
 
 The genetic programming process involves multiple sequential generations of a population, starting with randomly-generated generation zero, evaluating all of the individuals for fitness, then selecting pairs of parents with a bias to higher fitness individuals, then performing crossover on them to create a new population.
@@ -620,6 +688,12 @@ defmodule BrainfuckGP.Population do
     collect_tasks(still_pending, [done | results], timeout)
   end
 end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:module, BrainfuckGP.Population, <<70, 79, 82, 49, 0, 0, 30, ...>>, {:collect_tasks, 3}}
 ```
 
 ## To be continued
