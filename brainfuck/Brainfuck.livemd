@@ -1,11 +1,44 @@
-# Brainfuck
+# Genetic Programming with Brainfuck
 
-## About
+## Genetic Programming
+
+Genetic programming is an approach to solving optimization problems which has the following general structure (terms that will be revisited are in **bold**):
+
+* A collection of randomly-generated **individual** "genomes" is created as a starting **population**
+* Each of the genomes is interpreted as a potential solution the problem, and assigned a **fitness** value
+* Individuals are **selected** from the population with a some bias toward higher fitness
+* Pairs of selected individuals are re-combined via **crossover** and added to the next **generation**
+* Optionally, random **mutations** are introduced to try to avoid **converging** on sub-optimal solutions
+* Repeat until satisfied, or a fixed number of generations is evaluated
+
+The aim is that through repeated application of this process, fitness will in general improve to the point where an individual arises that is optimal or close enough. Genetic programming is not a good fit for problems where it is difficult to determine if a random string of data is closer than another to being a solution, or where there isn't a smooth gradient from poor to good solutions. Even for problems that are a good fit, genetic programming can easily get stuck on local optima without some care take to determine if that's happening.
+
+Commonly in genetic programming systems, individuals are just blobs of binary data which are interpreted in a specific way as potential solutions to the problem, and crossover involves deciding a location in each **parent** individual to cut them, then concatenate the four halves into two new individuals.
+
+As an illustration of this, consider a toy problem where we just want to evolve a string that reads "Now is the time for all good men to come to the aid of their country," and the fitness score is the distance of an individual from that string. Here's a possible crossover for two parents and their resulting children
+
+```
+P1: won is eht time rof all good nem to emoc to eht aid fo their yrtnuoc
+P2: now si the emit for lla doog men ot come ot the dia of rieht country 
+                            ^ cut here
+C1: won is eht time rof all doog men ot come ot the dia of rieht country
+C2: now si the emit for lla good nem to emoc to eht aid fo their yrtnuoc
+```
+
+<!-- livebook:{"break_markdown":true} -->
+
+Some genetic programming systems have been created which use [LISP programs as the genetic material](https://www.sci.utah.edu/~jmk/papers/others/Sims_1991_AEF.pdf), on the principle that you can cut LISP programs in half in specific places (usually right before parenthesis) and when you perform crossover, the result is always a syntactically correct LISP program. It is easy to create a problem domain specific language in LISP, and interpretation and fitness evaluation is straightforward.
+
+But what about a programming language that you can cut apart anywhere and recombine and still have syntactically correct program?
+
+## Brainfuck
 
 Brainfuck is an estoteric programming language, or esolang, designed to emulate a Turing machine. The language has only 8 instructions, which operate on data in the form of a "tape" of cells which contain an 8 bit quantity (which can represent a number 0-255 or an ASCII character). One cell is considered to be under a "read/write head" (also called the data pointer, or current cell) at any given time.
 
 The instructions are `<`, `>`, which shift the tape under the read/write head one cell to the left or right, `+`, `-`, which increment or decrement the value under the head, `.`, `,`, which read or write the current cell, and `[`, `]` which are delimiters that provide for simple loops.
-The code inside the brackets will be executed if the current cell contains a non-zero value, otherwise, it will be skipped.
+The code inside the brackets will be executed repeatedly while the current cell contains a non-zero value, otherwise, it will be skipped, and the code will begin executing after the closing `]`.
+
+This Livebook will implement a slightly modified version of brainfuck called **BrainfuckGP**, which has some specialized behavior for working with randomly generated and re-mixed program strings.
 
 ## The Tape
 
@@ -14,7 +47,7 @@ Brainfuck progams operate on an array of cells that extends in both directions, 
 Another representation of the tape is as two stacks, one stack representing the left side of the tape, and the other stack representing the current cell and the right side of the tape. This way, the tape can grow as needed, and no pre-allocation is required.
 
 ```elixir
-defmodule Brainfuck.Tape do
+defmodule BrainfuckGP.Tape do
   defstruct left: [0], right: [0, 0]
 
   def move_right(%{right: [head | []]} = tape) do
@@ -61,32 +94,26 @@ defmodule Brainfuck.Tape do
 end
 ```
 
-<!-- livebook:{"output":true} -->
-
-```
-{:module, Brainfuck.Tape, <<70, 79, 82, 49, 0, 0, 16, ...>>, {:zero?, 1}}
-```
-
 ## The Program
 
-A brainfuck program is just a sequence of the characters `<>+-[].,`. It is intended that occurrences of `[`, and `]` be balanced, but since one potential use of this interpreter is to run on randomly-generated programs, any unmatched occurrence of `[` is assumed to be closed by the end of the program. Any unmatched occurrence of `]` is ignored.
+A brainfuck program is just a sequence of the 8 instructions `<>+-[].,`. In standard brainfuck, occurrences of `[`, and `]` need be balanced in order to form a correct program. But since the intended use of this interpreter is to run on randomly-generated and re-mixed programs, this rule must be abandoned. In this interpreter, any unmatched occurrence of `[` is assumed to be closed by the end of the program. Any unmatched occurrence of `]` is simply ignored.
 
-However, if programs are cut apart and re-mixed (as in genetic programming), latent loops have the potential to become actual loops and vice-versa, through introduction or elision of delimiters.
+Now, when programs are cut apart and re-mixed by the genetic programming system, latent loops have the potential to become actual loops and vice-versa—through introduction or elision of square brackets.
 
-This implementation also has protection against infinite loops. If an individual loop iterates more than a specified amount, the program terminates with an error.
+This implementation also needs to have protection against infinite loops, so that if an individual loop iterates more than a specified amount, the program terminates with an error.
 
 If an `input:` list is supplied with the program, then the `,` instruction will take these bytes as input (otherwise, `,` sets the current cell to 0). Similarly, output is prepended to the `output:` field (and will need to be reversed when the program terminates).
 
 ```elixir
-defmodule Brainfuck.Program do
+defmodule BrainfuckGP.Program do
   defstruct code: "",
-            tape: %Brainfuck.Tape{},
+            tape: %BrainfuckGP.Tape{},
             input: [],
             output: [],
             loop_counter: [],
             loop_limit: 10000
 
-  alias Brainfuck.Tape
+  alias BrainfuckGP.Tape
 
   @movl ?<
   @movr ?>
@@ -98,7 +125,7 @@ defmodule Brainfuck.Program do
   @pool ?]
 
   def run(code) when is_binary(code) do
-    with {:ok, %{output: output}} <- %Brainfuck.Program{code: code} |> run do
+    with {:ok, %{output: output}} <- %BrainfuckGP.Program{code: code} |> run do
       Enum.reverse(output)
     else
       {:error, reason, pgm} -> {:error, reason, pgm}
@@ -206,34 +233,19 @@ defmodule Brainfuck.Program do
 end
 ```
 
-<!-- livebook:{"output":true} -->
-
-```
-{:module, Brainfuck.Program, <<70, 79, 82, 49, 0, 0, 24, ...>>, {:snip_loop, 3}}
-```
-
 Let's give the infinite loop guard a try:
 
 ```elixir
-"+[[>+]]" |> Brainfuck.Program.run()
+"+[<+>]" |> BrainfuckGP.Program.run()
 ```
 
-<!-- livebook:{"output":true} -->
+And a simple `echo` command:
 
-```
-{:error, "exceeded loop limit",
- %Brainfuck.Program{
-   code: ">+",
-   tape: %Brainfuck.Tape{
-     left: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-      1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, ...],
-     right: [1]
-   },
-   input: [],
-   output: [],
-   loop_counter: [10001, 1],
-   loop_limit: 10000
- }}
+```elixir
+{:ok, %{output: [0 | out]}} =
+  %BrainfuckGP.Program{code: "+[,.]", input: 'Hello World!'} |> BrainfuckGP.Program.run()
+
+Enum.reverse(out)
 ```
 
 ## Hello World
@@ -276,13 +288,340 @@ Pointer :   ^
 >>+.                    Add 1 to Cell #5 gives us an exclamation point
 >++.                    And finally a newline from Cell #6
 """
-|> Brainfuck.Program.run()
+|> BrainfuckGP.Program.run()
 ```
 
-<!-- livebook:{"output":true} -->
+Some additional utilities are needed to support genetic programming. First, it will be necessary to create populations of randomly generated programs. Next, before actually executing the programs, it might help to remove runs of extraneous instructions that cancel each other out, such as `<>`, `><`, `+-`, and `-+`. Note that to preserve the magic of crossover, it is desirable to keep the extraneous "junk DNA" in the string, so we will only yank it immediately before executing the program. `BrainfuckGP.Util.normalize_program()` repeatedly goes over the string until no changes are made.
 
+Is this more work than just executing the extraneous brainfuck instructions? Maybe. Perhaps some test runs would work that out. At any rate, it will be useful for examining programs of interest to see how they work, if such a thing is even possible.
+
+```elixir
+defmodule BrainfuckGP.Util do
+  def random_program(program \\ <<>>) do
+    case :rand.uniform(200) do
+      100 -> program
+      n when n < 3 -> random_program("[" <> program <> "]")
+      n when n > 196 -> random_program("[" <> program <> "]")
+      n when n < 100 -> random_program(random_token(n) <> program)
+      n when n > 100 -> random_program(program <> random_token(n))
+    end
+  end
+
+  def random_token(n) do
+    "<<---.,+++>>" |> String.at(n |> rem(12))
+  end
+
+  # Remove extraneous pairs of instructions (e.g. "<>", or "+-") from
+  # a progam
+  def normalize_program(pgm, acc \\ <<>>, modified? \\ :not_modified)
+
+  # A pass through the program found no occurrences, return the program
+  def normalize_program(<<>>, acc, :not_modified), do: acc
+
+  # A pass through the program removed some instructions. Make another pass.
+  def normalize_program(<<>>, acc, :modified), do: normalize_program(acc, <<>>, :not_modified)
+
+  # Various pairs to eliminate
+  def normalize_program(<<?<, ?>, rest::binary>>, acc, _) do
+    normalize_program(rest, acc, :modified)
+  end
+
+  def normalize_program(<<?>, ?<, rest::binary>>, acc, _) do
+    normalize_program(rest, acc, :modified)
+  end
+
+  def normalize_program(<<?+, ?-, rest::binary>>, acc, _) do
+    normalize_program(rest, acc, :modified)
+  end
+
+  def normalize_program(<<?-, ?+, rest::binary>>, acc, _) do
+    normalize_program(rest, acc, :modified)
+  end
+
+  # No pairs found, accumulate the first character into the accumulator
+  def nonormalize_programrm(<<first::utf8, rest::binary>>, acc, modified?) do
+    normalize_program(rest, <<acc::binary, first::utf8>>, modified?)
+  end
+end
 ```
-'Hello World!\n'
+
+## Implementing the Genetic Programming Tools
+
+With the brainfuck implementation out of the way, next is implementation for the overall genetic programming process.
+
+In order to keep tabs on whether the population is converging on a solution, we need a module to keep track of various statistics for a population. Mean, median, min, max. If it starts with the letter 'm', we got it (excepting "mode," for which there isn't really a need).
+
+```elixir
+defmodule BrainfuckGP.PopulationStatistics do
+  defstruct mean: 0,
+            median: 0,
+            min: 0,
+            max: 0
+
+  def compute(population) do
+    stats = %BrainfuckGP.PopulationStatistics{
+      median: find_median(population)
+    }
+
+    population
+    |> to_fitness_list()
+    |> _compute(stats)
+  end
+
+  defp _compute([], stats), do: stats
+
+  defp _compute([score | rest], stats) do
+    _compute(rest, %{
+      stats
+      | mean: (stats.mean + score) / 2,
+        min:
+          case score do
+            score when score < stats.min -> score
+            _ -> stats.min
+          end,
+        max:
+          case score do
+            score when score > stats.max -> score
+            _ -> stats.max
+          end
+    })
+  end
+
+  defp to_fitness_list(population) do
+    population.individuals
+    |> Enum.map(fn x -> x.fitness end)
+  end
+
+  defp find_median(population) do
+    list = population |> to_fitness_list |> Enum.sort()
+    length = list |> length
+
+    case length |> rem(2) do
+      1 ->
+        {_, [median | _]} = list |> Enum.split(-1 + trunc((length + 1) / 2))
+        median
+
+      0 ->
+        {_, [a, b | _]} = list |> Enum.split(trunc(-1 + length / 2))
+        (a + b) / 2
+    end
+  end
+end
 ```
 
+An individual of a population is some brainfuck code, paired with a fitness value, which is determined by executing the program, then comparing the output with the target using a fitness function supplied by the user.
 
+This module contains the code to get a random individual with which a starting population can be seeded, and the code to take two individuals and perform crossover on them, resulting in two progeny. The crossover process is intentionally error prone, in the hope that introducing a little randomness can help bump the evolution process off of local optima.
+
+A mutation in a brainfuck program flips a `+` to a `-`, a `<` to a `>` and so forth. It might be better to select a random instruction instead.
+
+```elixir
+defmodule BrainfuckGP.Individual do
+  defstruct code: "",
+            fitness: 0.0
+
+  alias BrainfuckGP.Util
+  alias BrainfuckGP.Individual
+  alias BrainfuckGP.Program
+
+  def random() do
+    %Individual{code: Util.random_program()}
+  end
+
+  # When populations have a proportion of already evaluated individuals, 
+  # this will simply return that individual, rather than re-evaluate it
+  def evaluate(%{fitness: fitness} = individual, _input, _fitness_function)
+      when fitness > 0.0 do
+    individual
+  end
+
+  def evaluate(%{code: code} = individual, input, fitness_function) do
+    evaluated = %Program{code: code, input: input} |> Program.run()
+    %Individual{individual | fitness: fitness_function.(evaluated)}
+  end
+
+  def evaluate_async(individual, input, fitness_function) do
+    Task.async(fn -> evaluate(individual, input, fitness_function) end)
+  end
+
+  def crossover(%{code: ind1}, %{code: ind2}, mutation_rate) do
+    {ind1a, ind1b} = String.split_at(ind1, :rand.uniform(String.length(ind1)))
+    {ind2a, ind2b} = String.split_at(ind2, :rand.uniform(String.length(ind2)))
+
+    {
+      %Individual{code: ind1a <> ind2b} |> mutate(mutation_rate),
+      %Individual{code: ind2a <> ind1b} |> mutate(mutation_rate)
+    }
+  end
+
+  def mutate(%{code: code} = ind, mutation_rate) do
+    %Individual{ind | code: mutate_code(code, mutation_rate, <<>>)}
+  end
+
+  defp mutate_code(<<>>, _mutation_rate, acc), do: acc
+
+  defp mutate_code(<<char::utf8, rest::binary>>, mutation_rate, acc) do
+    new_char = flip(char, mutation_rate)
+    mutate_code(rest, mutation_rate, <<acc::binary, new_char::utf8>>)
+  end
+
+  defp flip(char, rate) do
+    cond do
+      :rand.uniform() < rate ->
+        flip(char)
+
+      true ->
+        char
+    end
+  end
+
+  defp flip(char) do
+    case char do
+      ?+ -> ?-
+      ?- -> ?+
+      ?< -> ?>
+      ?> -> ?<
+      ?[ -> ?]
+      ?] -> ?[
+      ?, -> ?.
+      ?. -> ?,
+      _ -> char
+    end
+  end
+end
+```
+
+Lets give mutation a try with a fairly high rate (1 in 10 chance):
+
+```elixir
+BrainfuckGP.Individual.random()
+|> IO.inspect()
+|> BrainfuckGP.Individual.mutate(0.1)
+```
+
+The genetic programming process involves multiple sequential generations of a population, starting with randomly-generated generation zero, evaluating all of the individuals for fitness, then selecting pairs of parents with a bias to higher fitness individuals, then performing crossover on them to create a new population.
+
+The `BrainfuckGP.Population` module implements the basic building blocks for that process.
+
+Selecting with bias is done with a selector stream that performs [Fitness Proportionate Selection](https://en.wikipedia.org/wiki/Fitness_proportionate_selection). Imagine roulette wheel where the sections are like a pie chart where higher fitness individuals have a bigger slice of the pie. The wheel gets spun a random distance of the whole circumference, and where the pointer lands is the individual that is selected.
+
+Some of the convenient features of this selection mechanism are that you don't have to perform normalization of the fitness values, or sort them.
+
+The selector stream maintains a "circular" list of the individuals from a population, and produces an endless stream of selected individuals from the population, from which `next_generation()` `Enum.take()`s two at a time and performs crossover on them until the new population is full.
+
+The `next_generation()` function also copies forward a certain percentage of individuals from the previous generation, also selected with a bias to higher fitness.
+
+```elixir
+defmodule BrainfuckGP.Population do
+  defstruct generation: 0,
+            individuals: [],
+            mutation_rate: 0.01,
+            stats: nil
+
+  alias BrainfuckGP.Individual
+  alias BrainfuckGP.Population
+
+  def random(size, mutation_rate \\ 0.01) do
+    %Population{
+      individuals: 1..size |> Enum.map(fn _x -> Individual.random() end),
+      mutation_rate: mutation_rate
+    }
+  end
+
+  def evaluate(%{individuals: ind} = population, input, fitness_function) do
+    %{
+      population
+      | individuals:
+          ind
+          |> Enum.map(fn x -> Individual.evaluate(x, input, fitness_function) end)
+    }
+  end
+
+  def evaluate_async(%{individuals: ind} = population, input, fitness_function) do
+    %{
+      population
+      | individuals:
+          ind
+          |> Enum.map(fn x -> Individual.evaluate_async(x, input, fitness_function) end)
+          |> collect_tasks([])
+    }
+  end
+
+  def next_generation(%{individuals: ind, mutation_rate: rate} = pop, copy_percent \\ 0.2) do
+    selector = Population.selector(pop)
+    size = ind |> length()
+    copy_n = (size * copy_percent) |> trunc()
+    copy_forward = selector |> Enum.take(copy_n)
+
+    %Population{
+      generation: 1 + pop.generation,
+      individuals: gen(size - copy_n, copy_forward, selector, rate),
+      mutation_rate: rate
+    }
+  end
+
+  defp gen(remaining, new_individuals, _selector, _mutation_rate) when remaining < 1 do
+    new_individuals
+  end
+
+  defp gen(remaining, new_individuals, selector, mutation_rate) do
+    [parent1, parent2] = selector |> Enum.take(2)
+    {child1, child2} = Individual.crossover(parent1, parent2, mutation_rate)
+    gen(remaining - 2, [child1, child2 | new_individuals], selector, mutation_rate)
+  end
+
+  def selector(population) do
+    total = population.individuals |> Enum.reduce(0, fn x, sum -> sum + x.fitness end)
+    Stream.unfold({[], population.individuals, total}, &select/1)
+  end
+
+  defp select({left, right, total}) do
+    select(left, right, total, total |> trunc |> :rand.uniform())
+  end
+
+  defp select(left, [%{fitness: fitness} = current | right], total, distance)
+       when distance < fitness do
+    {current, {[current | left], right, total}}
+  end
+
+  defp select(left, [%{fitness: fitness} = current | right], total, distance) do
+    select([current | left], right, total, distance - fitness)
+  end
+
+  defp select(left, [], total, distance) do
+    select([], left |> Enum.reverse(), total, distance)
+  end
+
+  def collect_tasks(pending_tasks, results, timeout \\ 333)
+
+  def collect_tasks([], results, _timeout) do
+    results
+  end
+
+  def collect_tasks(pending_tasks, results, timeout) do
+    state = pending_tasks |> Task.yield_many(timeout)
+
+    done =
+      state
+      |> Enum.filter(fn
+        {:ok, _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn {_, term} -> term end)
+
+    still_pending =
+      Enum.zip(state, pending_tasks)
+      |> Enum.filter(fn
+        {nil, _} -> true
+        _ -> false
+      end)
+      |> Enum.map(fn {_, task} -> task end)
+
+    collect_tasks(still_pending, [done | results], timeout)
+  end
+end
+```
+
+## To be continued
+
+Now that the building blocks are in place, we can put them together in a framework and test them out in some sample projects. That will be the subject of a followup article.
