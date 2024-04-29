@@ -111,6 +111,12 @@ defmodule Brainfunk.Tape do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Brainfunk.Tape, <<70, 79, 82, 49, 0, 0, 17, ...>>, {:zero?, 1}}
+```
+
 ## A BrainFunk Program and Interpreter
 
 A running Brainfunk program needs to keep track of
@@ -362,6 +368,12 @@ defmodule Brainfunk.Program do
 end
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:module, Brainfunk.Program, <<70, 79, 82, 49, 0, 0, 45, ...>>, {:print_output, 1}}
+```
+
 First let's make sure we can run a standard brainfuck program.
 
 ```elixir
@@ -402,6 +414,12 @@ Contents   0   0  72 104  88  32   8
 |> Brainfunk.Program.run_string()
 ```
 
+<!-- livebook:{"output":true} -->
+
+```
+{:ok, ~c"Hello World!\n"}
+```
+
 Now let's run something with functions
 
 ```elixir
@@ -421,4 +439,19 @@ with {:ok, %{output: result} = pgm} <-
        |> Brainfunk.Program.run() do
   {:ok, result |> Enum.reverse(), pgm}
 end
+```
+
+<!-- livebook:{"output":true} -->
+
+```
+{:ok, [246, 16, 34],
+ %Brainfunk.Program{
+   code: "",
+   tape: %Brainfunk.Tape{left: [0], right: [0]},
+   input: [],
+   output: [34, 16, 246],
+   call_table: %{1 => "[-<+>]<", 2 => "[>+>+<<-]>>[<<+>>-]<", 3 => ">++^>+^"},
+   loop_counter: [],
+   loop_limit: 10000
+ }}
 ```
