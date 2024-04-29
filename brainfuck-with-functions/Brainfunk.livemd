@@ -58,9 +58,13 @@ When the function is done executing, the interpreter must:
 The above is much easier to think about if instead of tapes and splicing, the data operated upon by the program is represented as a pair of stacks, with the data pointer being the top of the left stack. The instructions for moving the tape left or right under the read head, `<` and `>` respectively, just pop the value off the top of one stack and push it onto the other.
 
 Here is a tape and two stacks representation, with the highlighted cell representing the data pointer.
+
 ![](files/Tape_vs_Stack.png)
+
 Here is the same after executing a `<` instruction, moving the data pointer to the left.
+
 ![](files/tape_vs_stack2.png)
+
 In this representation, calling a function just means sending the left hand stack to the function program, along with an empty right-hand stack. Returning to the calling program is a no-op, because the top of the left stack now has the result, and the calling program's right hand stack is the same as it was.
 
 ```elixir
